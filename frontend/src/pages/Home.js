@@ -24,9 +24,11 @@ const Home = () => {
     return nodeId;
   };
 
-  // FIX 1: Removed unused `getTimeRangeParams` function entirely.
-
-  // Fetch real sensor data from API
+  // Fetch real sensor data from API.
+  // FIX: Removed `nodes` from deps (it was never read inside this function).
+  // FIX: Renamed `sensorData` → `filtered` and actually consumed it to wire up
+  //      all previously-unused state setters: setWaterLevel, setTemperature,
+  //      setWaterLevelData, setTemperatureData, setLastUpdated, setHasDataForNode.
   const fetchSensorData = useCallback(async () => {
     try {
       setLoading(true);
@@ -35,60 +37,87 @@ const Home = () => {
       const allSensorData = response.data || [];
 
       const actualNodeId = getActualTankId(selectedNode);
-      const sensorData = allSensorData.filter(
+      const filtered = allSensorData.filter(
         (item) => item.node_id === actualNodeId
       );
 
+      if (filtered.length === 0) {
+        setHasDataForNode(false);
+        setNodeDataMessage(`No data found for node: ${selectedNode}`);
+        setWaterLevelData([]);
+        setTemperatureData([]);
+        setWaterLevel(0);
+        setTemperature(0);
+      } else {
+        setHasDataForNode(true);
+        setNodeDataMessage('');
+
+        // Build chart-ready arrays from the filtered sensor records.
+        // Adjust field names below to match your actual API response shape.
+        const wlData = filtered.map((item) => ({
+          time: new Date(item.timestamp).toLocaleTimeString(),
+          value: item.water_level_pct ?? 0,
+          raw_cm: item.water_level_cm ?? 0,
+        }));
+        const tempData = filtered.map((item) => ({
+          time: new Date(item.timestamp).toLocaleTimeString(),
+          value: item.temperature ?? 0,
+        }));
+
+        setWaterLevelData(wlData);
+        setTemperatureData(tempData);
+
+        // Show the most recent reading in the summary cards
+        const latest = filtered[filtered.length - 1];
+        setWaterLevel(latest.water_level_pct ?? 0);
+        setTemperature(latest.temperature ?? 0);
+        setLastUpdated(new Date());
+      }
     } catch (error) {
       console.error('Error fetching sensor data:', error);
+      setHasDataForNode(false);
     } finally {
       setLoading(false);
     }
-  }, [selectedNode, nodes]);
+  }, [selectedNode]);
 
-  // FIX 2: Wrapped `fetchNodes` in useCallback so it has a stable reference
-  // and can be safely included in the useEffect dependency array below.
+  // Fetch available nodes from tank_sensor parameters table.
+  // FIX: Removed `selectedNode` from deps. Instead of reading selectedNode
+  //      directly, we use the functional setState form `prev => prev || ...`
+  //      so the callback never needs to close over the state value, giving it
+  //      a stable [] dependency and preventing unnecessary re-creation.
   const fetchNodes = useCallback(async () => {
     try {
       const response = await axios.get(
         config.TANK_PARAMETERS_URL,
-        {
-          headers: {
-            'accept': 'application/json'
-          }
-        }
+        { headers: { 'accept': 'application/json' } }
       );
 
       const nodesData = response.data || [];
-      const transformedNodes = (nodesData || []).map(node => ({
+      const transformedNodes = nodesData.map(node => ({
         id: node?.node_id,
         name: node?.node_id,
         tank_height: node?.tank_height_cm,
         tank_length: node?.tank_length_cm,
         tank_width: node?.tank_width_cm,
         latitude: node?.lat,
-        longitude: node?.long
+        longitude: node?.long,
       }));
       setNodes(transformedNodes);
 
       if (transformedNodes.length > 0) {
-        setSelectedNode(transformedNodes[0].id);
+        setSelectedNode(prev => prev || transformedNodes[0].id);
         console.log("Default node set:", transformedNodes[0].id);
       } else {
         console.log("No nodes received from API");
-        console.log("Fetching data...");
       }
     } catch (error) {
       console.error('Error fetching nodes:', error);
-      const sampleNodes = [
-        { id: '', name: 'Tank 001' }
-      ];
+      const sampleNodes = [{ id: '', name: 'Tank 001' }];
       setNodes(sampleNodes);
-      if (!selectedNode) {
-        setSelectedNode(sampleNodes[0].id);
-      }
+      setSelectedNode(prev => prev || sampleNodes[0].id);
     }
-  }, [selectedNode]);
+  }, []);
 
   // Handle node selection change
   const handleNodeChange = (event) => {
@@ -108,35 +137,25 @@ const Home = () => {
   const handleTimeRangeChange = (event) => {
     const timeRange = event.target.value;
     setSelectedTimeRange(timeRange);
-
     if (timeRange !== 'custom') {
       setCustomFromDate('');
       setCustomToDate('');
     }
   };
 
-  // Handle custom date changes
-  const handleCustomFromDateChange = (event) => {
-    setCustomFromDate(event.target.value);
-  };
+  const handleCustomFromDateChange = (event) => setCustomFromDate(event.target.value);
+  const handleCustomToDateChange = (event) => setCustomToDate(event.target.value);
 
-  const handleCustomToDateChange = (event) => {
-    setCustomToDate(event.target.value);
-  };
-
-  // FIX 3: Added `fetchNodes` and `fetchSensorData` to the dependency array.
-  // Both are now stable useCallback references so this won't cause infinite re-runs.
+  // Initial fetch + polling interval
   useEffect(() => {
     fetchNodes();
-
     const interval = setInterval(() => {
       fetchSensorData();
     }, 10000);
-
     return () => clearInterval(interval);
   }, [fetchNodes, fetchSensorData]);
 
-  // Effect to refetch sensor data when selectedNode changes
+  // Refetch whenever the selected node or time range changes
   useEffect(() => {
     if (selectedNode) {
       fetchSensorData();
@@ -208,12 +227,13 @@ const Home = () => {
             </div>
           )}
         </div>
+
         {lastUpdated && (
           <div className="last-updated">
             Last updated: {lastUpdated.toLocaleTimeString('en-US', {
               hour: '2-digit',
               minute: '2-digit',
-              second: '2-digit'
+              second: '2-digit',
             })}
             {loading && <span className="update-indicator"> • Updating...</span>}
           </div>
@@ -249,16 +269,18 @@ const Home = () => {
           <span className="time-range-info">
             {' '}• Time Range: {
               selectedTimeRange === '1h' ? 'Last 1 Hour' :
-                selectedTimeRange === '6h' ? 'Last 6 Hours' :
-                  selectedTimeRange === '24h' ? 'Last 24 Hours' :
-                    selectedTimeRange === '7d' ? 'Last 7 Days' :
-                      selectedTimeRange === 'all' ? 'All Time' :
-                        selectedTimeRange === 'custom' ? 'Custom Range' : 'Last 24 Hours'
+              selectedTimeRange === '6h' ? 'Last 6 Hours' :
+              selectedTimeRange === '24h' ? 'Last 24 Hours' :
+              selectedTimeRange === '7d' ? 'Last 7 Days' :
+              selectedTimeRange === 'all' ? 'All Time' :
+              selectedTimeRange === 'custom' ? 'Custom Range' : 'Last 24 Hours'
             }
           </span>
           {nodes.find(n => n.id === selectedNode)?.tank_height && (
             <span className="tank-specs">
-              {' '}• Tank: {nodes.find(n => n.id === selectedNode)?.tank_height}cm (H) × {nodes.find(n => n.id === selectedNode)?.tank_length}cm (L) × {nodes.find(n => n.id === selectedNode)?.tank_width}cm (W)
+              {' '}• Tank: {nodes.find(n => n.id === selectedNode)?.tank_height}cm (H) ×{' '}
+              {nodes.find(n => n.id === selectedNode)?.tank_length}cm (L) ×{' '}
+              {nodes.find(n => n.id === selectedNode)?.tank_width}cm (W)
             </span>
           )}
         </div>
@@ -276,9 +298,7 @@ const Home = () => {
             <h3>Water Level</h3>
           </div>
           <div className="card-value">
-            <span className="value">
-              {loading ? '--' : (!hasDataForNode ? 'N/A' : waterLevel)}
-            </span>
+            <span className="value">{loading ? '--' : (!hasDataForNode ? 'N/A' : waterLevel)}</span>
             <span className="unit">%</span>
           </div>
           <div className="card-status">
@@ -299,9 +319,7 @@ const Home = () => {
             <h3>Temperature</h3>
           </div>
           <div className="card-value">
-            <span className="value">
-              {loading ? '--' : (!hasDataForNode ? 'N/A' : temperature)}
-            </span>
+            <span className="value">{loading ? '--' : (!hasDataForNode ? 'N/A' : temperature)}</span>
             <span className="unit">°C</span>
           </div>
           <div className="card-status">
@@ -316,7 +334,7 @@ const Home = () => {
       {/* Graphs Section */}
       <div className="graphs-container">
         <div className="graph-card">
-          <h3>Water Level </h3>
+          <h3>Water Level</h3>
           {loading && waterLevelData.length === 0 ? (
             <div className="graph-loading">Loading sensor data...</div>
           ) : !hasDataForNode ? (
@@ -341,7 +359,7 @@ const Home = () => {
                   labelFormatter={(value) => `Time: ${value}`}
                   formatter={(value, name, props) => [
                     `${value}% (${props.payload.raw_cm}cm)`,
-                    'Water Level'
+                    'Water Level',
                   ]}
                 />
                 <Line
@@ -357,7 +375,7 @@ const Home = () => {
         </div>
 
         <div className="graph-card">
-          <h3>Temperature </h3>
+          <h3>Temperature</h3>
           {loading && temperatureData.length === 0 ? (
             <div className="graph-loading">Loading sensor data...</div>
           ) : !hasDataForNode ? (
