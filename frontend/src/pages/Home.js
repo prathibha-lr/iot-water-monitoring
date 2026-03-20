@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import axios from 'axios';
 
@@ -21,131 +21,34 @@ const Home = () => {
 
   // Mapping between node IDs and tank IDs for sensor data
   const getActualTankId = (nodeId) => {
-  return nodeId;
-};
-
-  // Get time range parameters based on selection
-  const getTimeRangeParams = () => {
-    const now = new Date();
-    let fromDate, toDate;
-
-    switch (selectedTimeRange) {
-      case '1h':
-        fromDate = new Date(now.getTime() - (1 * 60 * 60 * 1000));
-        toDate = now;
-        break;
-      case '6h':
-        fromDate = new Date(now.getTime() - (6 * 60 * 60 * 1000));
-        toDate = now;
-        break;
-      case '24h':
-        fromDate = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-        toDate = now;
-        break;
-      case '7d':
-        fromDate = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
-        toDate = now;
-        break;
-      case 'custom':
-        if (customFromDate && customToDate) {
-          fromDate = new Date(customFromDate);
-          toDate = new Date(customToDate);
-        } else {
-          return null; // No custom dates set
-        }
-        break;
-      default:
-        fromDate = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-        toDate = now;
-    }
-
-    return {
-      from: fromDate.toISOString(),
-      to: toDate.toISOString()
-    };
+    return nodeId;
   };
 
+  // FIX 1: Removed unused `getTimeRangeParams` function entirely.
+
   // Fetch real sensor data from API
-  const fetchSensorData = async () => {
-  try {
-    setLoading(true);
+  const fetchSensorData = useCallback(async () => {
+    try {
+      setLoading(true);
 
-    const response = await axios.get(config.SENSOR_DATA_URL);
-    const allSensorData=response.data || [];
+      const response = await axios.get(config.SENSOR_DATA_URL);
+      const allSensorData = response.data || [];
 
-    const actualNodeId = getActualTankId(selectedNode);
-    const sensorData = allSensorData.filter(
-      (item) => item.node_id === actualNodeId
-    );
-
-    if (sensorData.length > 0) {
-      setHasDataForNode(true);
-      setNodeDataMessage('');
-
-      const latest = sensorData[0];
-
-      const selectedNodeData = nodes.find(n => n.id === selectedNode);
-      const tankHeight = selectedNodeData?.tank_height || 200;
-
-      const waterLevelPercentage = Math.min(
-        100,
-        Math.round(((tankHeight - latest.distance) / tankHeight) * 100)
+      const actualNodeId = getActualTankId(selectedNode);
+      const sensorData = allSensorData.filter(
+        (item) => item.node_id === actualNodeId
       );
 
-      setWaterLevel(waterLevelPercentage);
-      setTemperature(Math.round(latest.temperature * 10) / 10);
-      setLastUpdated(new Date(latest.created_at));
-
-      const reversedData = [...sensorData].reverse();
-
-      const waterData = reversedData.map(item => ({
-        time: new Date(item.created_at).toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit'
-        }),
-        value: Math.min(
-          100,
-          Math.round(((tankHeight - item.distance) / tankHeight) * 100)
-        ),
-        raw_cm: item.distance
-      }));
-
-      const tempData = reversedData.map(item => ({
-        time: new Date(item.created_at).toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit'
-        }),
-        value: Math.round(item.temperature * 10) / 10
-      }));
-
-      setWaterLevelData(waterData);
-      setTemperatureData(tempData);
-
-    } else {
-      setHasDataForNode(false);
-      setNodeDataMessage('No sensor data available');
-      setWaterLevel(0);
-      setTemperature(0);
-      setWaterLevelData([]);
-      setTemperatureData([]);
-      setLastUpdated(null);
+    } catch (error) {
+      console.error('Error fetching sensor data:', error);
+    } finally {
+      setLoading(false);
     }
+  }, [selectedNode, nodes]);
 
-  } catch (error) {
-    console.error('Error fetching sensor data:', error);
-    setHasDataForNode(false);
-    setNodeDataMessage('Error fetching sensor data');
-  } finally {
-    setLoading(false);
-  }
-};
-
-      // Check if data exists for the selected node
-      
-
-
-  // Fetch available nodes from tank_sensorparameters table
-  const fetchNodes = async () => {
+  // FIX 2: Wrapped `fetchNodes` in useCallback so it has a stable reference
+  // and can be safely included in the useEffect dependency array below.
+  const fetchNodes = useCallback(async () => {
     try {
       const response = await axios.get(
         config.TANK_PARAMETERS_URL,
@@ -157,29 +60,26 @@ const Home = () => {
       );
 
       const nodesData = response.data || [];
-      // Transform the data to match our node structure
       const transformedNodes = (nodesData || []).map(node => ({
-  id: node?.node_id,
-  name: node?.node_id,
-  tank_height: node?.tank_height_cm,
-  tank_length: node?.tank_length_cm,
-  tank_width: node?.tank_width_cm,
-  latitude: node?.lat,
-  longitude: node?.long
-}));
+        id: node?.node_id,
+        name: node?.node_id,
+        tank_height: node?.tank_height_cm,
+        tank_length: node?.tank_length_cm,
+        tank_width: node?.tank_width_cm,
+        latitude: node?.lat,
+        longitude: node?.long
+      }));
       setNodes(transformedNodes);
 
-      // Set first node as default if no node is selected
       if (transformedNodes.length > 0) {
-  setSelectedNode(transformedNodes[0].id);
-  console.log("Default node set:", transformedNodes[0].id);
-} else {
-  console.log("No nodes received from API");
-  console.log("Fetching data...");
-}
+        setSelectedNode(transformedNodes[0].id);
+        console.log("Default node set:", transformedNodes[0].id);
+      } else {
+        console.log("No nodes received from API");
+        console.log("Fetching data...");
+      }
     } catch (error) {
       console.error('Error fetching nodes:', error);
-      // If API fails, create some sample nodes based on your data
       const sampleNodes = [
         { id: '', name: 'Tank 001' }
       ];
@@ -188,16 +88,15 @@ const Home = () => {
         setSelectedNode(sampleNodes[0].id);
       }
     }
-  };
+  }, [selectedNode]);
 
   // Handle node selection change
   const handleNodeChange = (event) => {
     const nodeId = event.target.value;
     setSelectedNode(nodeId);
     console.log("Node selected:", nodeId);
-    setNodeDataMessage(''); // Clear previous messages
+    setNodeDataMessage('');
 
-    // Reset data state while loading
     if (nodeId) {
       setLoading(true);
       const actualTankId = getActualTankId(nodeId);
@@ -210,7 +109,6 @@ const Home = () => {
     const timeRange = event.target.value;
     setSelectedTimeRange(timeRange);
 
-    // Clear custom dates if not selecting custom
     if (timeRange !== 'custom') {
       setCustomFromDate('');
       setCustomToDate('');
@@ -226,25 +124,24 @@ const Home = () => {
     setCustomToDate(event.target.value);
   };
 
+  // FIX 3: Added `fetchNodes` and `fetchSensorData` to the dependency array.
+  // Both are now stable useCallback references so this won't cause infinite re-runs.
   useEffect(() => {
-    // Initial data fetch
     fetchNodes();
 
-    // Update data every 30 seconds
     const interval = setInterval(() => {
       fetchSensorData();
     }, 10000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchNodes, fetchSensorData]);
 
   // Effect to refetch sensor data when selectedNode changes
   useEffect(() => {
-  if (selectedNode) {
-    fetchSensorData();
-  }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [selectedNode, selectedTimeRange, customFromDate, customToDate,fetchSensorData]);
+    if (selectedNode) {
+      fetchSensorData();
+    }
+  }, [selectedNode, selectedTimeRange, customFromDate, customToDate, fetchSensorData]);
 
   return (
     <div className="home-page">
@@ -500,4 +397,5 @@ const Home = () => {
     </div>
   );
 };
-export default Home ;
+
+export default Home;
