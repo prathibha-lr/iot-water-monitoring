@@ -243,7 +243,8 @@ const Home = () => {
   if (selectedNode) {
     fetchSensorData();
   }
-}, [selectedNode, selectedTimeRange, customFromDate, customToDate]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [selectedNode, selectedTimeRange, customFromDate, customToDate,fetchSensorData]);
 
   return (
     <div className="home-page">
