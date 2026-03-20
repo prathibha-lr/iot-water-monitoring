@@ -6,6 +6,7 @@ import config from '../config';
 
 const Home = () => {
   const [waterLevel, setWaterLevel] = useState(0);
+  const [rawDistance, setRawDistance] = useState(0);
   const [temperature, setTemperature] = useState(0);
   const [waterLevelData, setWaterLevelData] = useState([]);
   const [temperatureData, setTemperatureData] = useState([]);
@@ -47,20 +48,30 @@ const Home = () => {
         setWaterLevelData([]);
         setTemperatureData([]);
         setWaterLevel(0);
+        setRawDistance(0);
         setTemperature(0);
       } else {
         setHasDataForNode(true);
         setNodeDataMessage('');
 
-        // Build chart-ready arrays from the filtered sensor records.
-        // Adjust field names below to match your actual API response shape.
-        const wlData = filtered.map((item) => ({
-          time: new Date(item.timestamp).toLocaleTimeString(),
-          value: item.water_level_pct ?? 0,
-          raw_cm: item.water_level_cm ?? 0,
-        }));
+          // Find the tank height for the selected node (used to convert distance → %)
+        const nodeInfo = nodes.find(n => n.id === selectedNode);
+        const tankHeight = nodeInfo?.tank_height || 100; // fallback 100cm
+
+        // API returns `distance` (cm from sensor to water surface) and `created_at`.
+        // Water level % = ((tankHeight - distance) / tankHeight) * 100
+        const wlData = filtered.map((item) => {
+          const pct = Math.max(0, Math.min(100,
+            ((tankHeight - item.distance) / tankHeight) * 100
+          ));
+          return {
+            time: new Date(item.created_at).toLocaleTimeString(),
+            value: Math.round(pct * 10) / 10,
+            raw_cm: item.distance ?? 0,
+          };
+        });
         const tempData = filtered.map((item) => ({
-          time: new Date(item.timestamp).toLocaleTimeString(),
+          time: new Date(item.created_at).toLocaleTimeString(),
           value: item.temperature ?? 0,
         }));
 
@@ -69,7 +80,11 @@ const Home = () => {
 
         // Show the most recent reading in the summary cards
         const latest = filtered[filtered.length - 1];
-        setWaterLevel(latest.water_level_pct ?? 0);
+        const latestPct = Math.max(0, Math.min(100,
+          ((tankHeight - latest.distance) / tankHeight) * 100
+        ));
+        setWaterLevel(Math.round(latestPct * 10) / 10);
+        setRawDistance(latest.distance ?? 0);
         setTemperature(latest.temperature ?? 0);
         setLastUpdated(new Date());
       }
@@ -79,7 +94,7 @@ const Home = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedNode]);
+  }, [selectedNode, nodes]);
 
   // Fetch available nodes from tank_sensor parameters table.
   // FIX: Removed `selectedNode` from deps. Instead of reading selectedNode
@@ -301,6 +316,11 @@ const Home = () => {
             <span className="value">{loading ? '--' : (!hasDataForNode ? 'N/A' : waterLevel)}</span>
             <span className="unit">%</span>
           </div>
+          {!loading && hasDataForNode && (
+            <div className="card-subvalue">
+              Distance: {rawDistance} cm
+            </div>
+          )}
           <div className="card-status">
             <span className={`status ${!hasDataForNode ? 'no-data' : waterLevel > 50 ? 'good' : 'warning'}`}>
               {!hasDataForNode ? 'No Data' :
