@@ -10,11 +10,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
+<<<<<<< HEAD
 from tensorflow.keras.models import load_model
 import numpy as np
 
 # === LOAD ML MODEL ===
 ml_model = load_model("saved_models/LSTM_model.h5")
+=======
+#from tensorflow.keras.models import load_model
+import numpy as np
+
+# === LOAD ML MODEL ===
+#ml_model = load_model("saved_models/LSTM_model.h5")
+>>>>>>> 1c8d98ff6cc0f09900797b78a673bdca2f038158
 
 # Classes your model predicts
 CLASSES = ["no_activity", "shower", "faucet", "toilet", "dishwasher"]
@@ -361,6 +369,7 @@ def get_sensor_data(node_id: str = None):
 def predict_water_activity(data: dict):
 
     try:
+<<<<<<< HEAD
         # Get input
         distance = float(data.get("distance"))
         temperature = float(data.get("temperature"))
@@ -381,6 +390,22 @@ def predict_water_activity(data: dict):
         return {
             "prediction": CLASSES[predicted_class],
             "confidence": confidence
+=======
+        distance = float(data.get("distance"))
+        temperature = float(data.get("temperature"))
+
+        # Simple logic (no ML)
+        if distance < 20:
+            prediction = "high_usage"
+        elif temperature > 35:
+            prediction = "shower"
+        else:
+            prediction = "normal"
+
+        return {
+            "prediction": prediction,
+            "confidence": 0.9
+>>>>>>> 1c8d98ff6cc0f09900797b78a673bdca2f038158
         }
 
     except Exception as e:

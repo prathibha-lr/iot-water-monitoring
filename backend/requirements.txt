@@ -3,4 +3,9 @@ psycopg2-binary
 fastapi
 uvicorn
 pydantic
+<<<<<<< HEAD
 python-dotenv
+=======
+python-dotenv
+numpy
+>>>>>>> 1c8d98ff6cc0f09900797b78a673bdca2f038158
